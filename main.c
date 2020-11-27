@@ -49,10 +49,10 @@
 /****************************************************************************/
 
 // Application parameters
-#define FREQUENCY 1000
+#define FREQUENCY  1000
 #define CLOCK_TO_USE CLOCK_MONOTONIC
 #define MEASURE_TIMING
-#define MAX_SAFE_STACK (2048 * 1024)
+#define MAX_SAFE_STACK (4096 * 1024)
 /****************************************************************************/
 
 #define NSEC_PER_SEC (1000000000L)
@@ -78,11 +78,11 @@ static ec_slave_config_state_t sc_ana_in_state = {};
 /****************************************************************************/
 
 // process data
-static unsigned int counter = 0;
+static unsigned int counter = 1;
 static unsigned int blink = 0;
 // process data
-static uint8_t *domainOutput_pd = NULL;
-static uint8_t *domainInput_pd = NULL;
+static uint8_t *domain1_pd2 = NULL;
+static uint64_t *domainInput_pd = NULL;
 static uint8_t *domain1_pd = NULL;
 #define LAB_2_SlavePos  0, 0
 #define LAB_1_SlavePos  0, 1
@@ -92,17 +92,19 @@ static uint8_t *domain1_pd = NULL;
 
 // offsets for PDO entries
 static uint8_t alarmStatus;
-static float temperatureStatus;
-static uint8_t switches;
+static uint32_t temperatureStatus;
+static uint8_t segments;
 static uint16_t potentiometer;
-static uint8_t segmentWrite;
+static uint8_t swithces;
 static unsigned int sync_ref_counter = 0;
 const struct timespec cycletime = {0, PERIOD_NS};
 
 static ec_pdo_entry_reg_t domain1_regs[] = {
-    {LAB_2_SlavePos,  LAB_2, 0X0005, 0X01, &switches},
+    {LAB_2_SlavePos,  LAB_2, 0X0005, 0X01, &segments},
     {LAB_2_SlavePos,  LAB_2, 0X0006, 0X01, &potentiometer},
-    {LAB_2_SlavePos,  LAB_2, 0X0006, 0X02, &segmentWrite},
+    {LAB_2_SlavePos,  LAB_2, 0X0006, 0X02, &swithces},
+    {LAB_1_SlavePos,  LAB_1, 0X0005, 0X01, &alarmStatus},
+    {LAB_1_SlavePos,  LAB_1, 0X0006, 0X01, &temperatureStatus},
     {}
 };
 
@@ -113,9 +115,9 @@ static ec_pdo_entry_reg_t domain1_regs[] = {
  */
 
 static ec_pdo_entry_info_t slave_0_pdo_entries[] = {
-    {0x0005, 0x01, 8}, /* switches */
+    {0x0005, 0x01, 8}, /* Segments */
     {0x0006, 0x01, 16}, /* Potentiometer */
-    {0x0006, 0x02, 8}, /* segmentWrite */
+    {0x0006, 0x02, 8}, /* Swithces */
 };
 
 static ec_pdo_info_t slave_0_pdos[] = {
@@ -225,128 +227,146 @@ void check_slave_config_states(void)
 
 void *cyclic_task(void *arg)
 {
-    struct timespec wakeupTime, time;
-#ifdef MEASURE_TIMING
-    struct timespec startTime, endTime, lastStartTime = {};
-    uint32_t period_ns = 0, exec_ns = 0, latency_ns = 0,
-             latency_min_ns = 0, latency_max_ns = 0,
-             period_min_ns = 0, period_max_ns = 0,
-             exec_min_ns = 0, exec_max_ns = 0,
-             max_period=0, max_latency=0,max_exec=0,
-             min_latency=0xffffffff,
-             jitter=0;
-             
-#endif
+struct timespec wakeupTime, time;
+        #ifdef MEASURE_TIMING
+            struct timespec startTime, endTime, lastStartTime = {};
+            uint32_t period_ns = 0, exec_ns = 0, latency_ns = 0,
+            latency_min_ns = 0, latency_max_ns = 0,
+            period_min_ns = 0, period_max_ns = 0,
+            exec_min_ns = 0, exec_max_ns = 0,
+            max_period=0, max_latency=0,max_exec=0,
+            min_latency=0xffffffff,
+            jitter=0;
+                    
+        #endif
 
     // get current time
-    clock_gettime(CLOCK_TO_USE, &wakeupTime);
-    int begin=1 ;
-    while(1) {
-        
-        wakeupTime = timespec_add(wakeupTime, cycletime);
-        clock_nanosleep(CLOCK_TO_USE, TIMER_ABSTIME, &wakeupTime, NULL);
+clock_gettime(CLOCK_TO_USE, &wakeupTime);
+int begin=10;
+float tempData=0;
+unsigned short potVal=0;
+    while(1) 
+ {
+            
+    wakeupTime = timespec_add(wakeupTime, cycletime);
+    clock_nanosleep(CLOCK_TO_USE, TIMER_ABSTIME, &wakeupTime, NULL);
 
-        // Write application time to master
-        //
-        // It is a good idea to use the target time (not the measured time) as
-        // application time, because it is more stable.
-        //
-        ecrt_master_application_time(master, TIMESPEC2NS(wakeupTime));
+    // Write application time to master
+    //
+    // It is a good idea to use the target time (not the measured time) as
+    // application time, because it is more stable.
+    //
+    ecrt_master_application_time(master, TIMESPEC2NS(wakeupTime));
 
-#ifdef MEASURE_TIMING
-        clock_gettime(CLOCK_TO_USE, &startTime);
-        latency_ns = DIFF_NS(wakeupTime, startTime);
-        period_ns = DIFF_NS(lastStartTime, startTime);
-        exec_ns = DIFF_NS(lastStartTime, endTime);
-        lastStartTime = startTime;
-        if(!begin)
-        {
-           if(latency_ns > max_latency)        max_latency = latency_ns;
-           if(period_ns > max_period)          max_period  = period_ns;
-           if(exec_ns > max_exec)              max_exec    = exec_ns;
-        }
-        if (latency_ns > latency_max_ns)  {
-            latency_max_ns = latency_ns;
-        }
-        if (latency_ns < latency_min_ns) {
-            latency_min_ns = latency_ns;
-        }
-        if (period_ns > period_max_ns) {
-            period_max_ns = period_ns;
-        }
-        if (period_ns < period_min_ns) {
-            period_min_ns = period_ns;
-        }
-        if (exec_ns > exec_max_ns) {
-            exec_max_ns = exec_ns;
-        }
-        if (exec_ns < exec_min_ns) {
-            exec_min_ns = exec_ns;
-        }
-#endif
+        #ifdef MEASURE_TIMING
+            clock_gettime(CLOCK_TO_USE, &startTime);
+            latency_ns = DIFF_NS(wakeupTime, startTime);
+            period_ns = DIFF_NS(lastStartTime, startTime);
+            exec_ns = DIFF_NS(lastStartTime, endTime);
+            lastStartTime = startTime;
+            if(!begin)
+            {
+            if(latency_ns > max_latency && latency_ns < 1500000)        max_latency = latency_ns;
+            if(period_ns > max_period && period_ns < 1500000)          max_period  = period_ns;
+            if(exec_ns > max_exec && exec_ns < 1500000)              max_exec    = exec_ns;
+            }
 
-        // receive process data
-        ecrt_master_receive(master);
-        ecrt_domain_process(domain1);
+            if (latency_ns > latency_max_ns)  {
+                latency_max_ns = latency_ns;
+            }
+            if (latency_ns < latency_min_ns) {
+                latency_min_ns = latency_ns;
+            }
+            if (period_ns > period_max_ns) {
+                period_max_ns = period_ns;
+            }
+            if (period_ns < period_min_ns) {
+                period_min_ns = period_ns;
+            }
+            if (exec_ns > exec_max_ns) {
+                exec_max_ns = exec_ns;
+            }
+            if (exec_ns < exec_min_ns) {
+                exec_min_ns = exec_ns;
+            }
+        #endif
 
-        // check process data state (optional)
-        check_domain1_state();
+            // receive process data
+    ecrt_master_receive(master);
+    ecrt_domain_process(domain1);
 
-        if (counter) {
-            counter--;
-        } else { 
-            // do this at 1 Hz
-            counter = 10;
-            // check for master state (optional)
-        check_master_state();
+    // check process data state (optional)
+    //check_domain1_state();
 
-#ifdef MEASURE_TIMING
-            // output timing stats
-            printf("-----------------------------------------------\n");
-            printf("Tperiod   min : %10u ns  | max :%10u ns\n",
-                    period_min_ns, max_period);
-            printf("Texec     min : %10u ns  | max : %10u ns\n",
-                    exec_min_ns, max_exec);
-            printf("Tlatency  min : %10u ns  | max : %10u ns\n",
-                    latency_min_ns, max_latency);
-            printf("Tjitter max: %10u ns  \n",
-                    max_latency-min_latency, max_latency);
-            printf("-----------------------------------------------\n");
-            period_max_ns = 0;
-            period_min_ns = 0xffffffff;
-            exec_max_ns = 0;
-            exec_min_ns = 0xffffffff;
-            latency_max_ns = 0;
-            latency_min_ns = 0xffffffff;
-#endif
+    if (counter) 
+    {
+        counter--;
+    } 
+    else
+    { 
+        // do this at 1 Hz
+        counter = 100;
+        // check for master state (optional)
+    //check_master_state();
 
-            // calculate new process data
-            blink = !blink;
-        }
+        #ifdef MEASURE_TIMING
+                // output timing stats
+                printf("-----------------------------------------------\n");
+                printf("Tperiod   min   : %10u ns  | max : %10u ns\n",
+                        period_min_ns, period_max_ns);
+                printf("Texec     min   : %10u ns  | max : %10u ns\n",
+                        exec_min_ns, exec_max_ns);
+                printf("Tlatency  min   : %10u ns  | max : %10u ns\n",
+                        latency_min_ns, latency_max_ns);
+                printf("Tjitter max     : %10u ns  \n",
+                        latency_max_ns-latency_min_ns);
+                printf("Temperature     = %f \nPot Value       = %d\n",
+                        tempData,potVal);
 
-        // write process data
-        int readData = EC_READ_U8(domain1_pd + switches);
-        EC_WRITE_U8(domain1_pd + segmentWrite, blink ? 0x0c : 0x03);
+                printf("Tperiod min     : %10u ns  | max : %10u ns\n",
+                        period_min_ns, max_period);
+                 printf("Texec  min      : %10u ns  | max : %10u ns\n",
+                        exec_min_ns, max_exec);               
+                 printf("Tjitter min     : %10u ns  | max : %10u ns\n",
+                        max_latency-latency_min_ns, max_latency);
+                
+                printf("-----------------------------------------------\n");
+                period_max_ns = 0;
+                period_min_ns = 0xffffffff;
+                exec_max_ns = 0;
+                exec_min_ns = 0xffffffff;
+                latency_max_ns = 0;
+                latency_min_ns = 0xffffffff;
+        #endif
 
-        if (sync_ref_counter) {
-            sync_ref_counter--;
-        } else {
-            sync_ref_counter = 1; // sync every cycle
-
-            clock_gettime(CLOCK_TO_USE, &time);
-            ecrt_master_sync_reference_clock_to(master, TIMESPEC2NS(time));
-        }
-        ecrt_master_sync_slave_clocks(master);
-
-        // send process data
-        ecrt_domain_queue(domain1);
-        ecrt_master_send(master);
-        if(begin) begin=0;
-#ifdef MEASURE_TIMING
-        clock_gettime(CLOCK_TO_USE, &endTime);
-#endif
+                // calculate new process data
+                blink = !blink;
     }
-return NULL;
+
+            // write process data
+            tempData = EC_READ_REAL(domain1_pd2 + temperatureStatus);
+            potVal = EC_READ_U16(domain1_pd + potentiometer);
+            EC_WRITE_U8(domain1_pd + segments, blink ? 0x0c : 0x03);
+
+            if (sync_ref_counter) {
+                sync_ref_counter--;
+            } else {
+                sync_ref_counter = 1; // sync every cycle
+
+                clock_gettime(CLOCK_TO_USE, &time);
+                ecrt_master_sync_reference_clock_to(master, TIMESPEC2NS(time));
+            }
+            ecrt_master_sync_slave_clocks(master);
+
+            // send process data
+            ecrt_domain_queue(domain1);
+            ecrt_master_send(master);
+            if(begin) begin--;
+    #ifdef MEASURE_TIMING
+            clock_gettime(CLOCK_TO_USE, &endTime);
+    #endif
+ }
+    return NULL;
 }
 
 /****************************************************************************/
@@ -361,6 +381,7 @@ void stack_prefault(void)
 int main(int argc, char **argv)
 {
     ec_slave_config_t *sc;
+    ec_slave_config_t *slave_config2;
 
     if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
         perror("mlockall failed");
@@ -372,7 +393,7 @@ int main(int argc, char **argv)
         return -1;
 
     domain1 = ecrt_master_create_domain(master);
-    if (!domain1)
+     if (!domain1)
         return -1;
 
 
@@ -382,29 +403,38 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    switches = ecrt_slave_config_reg_pdo_entry(sc,
+
+    segments = ecrt_slave_config_reg_pdo_entry(sc,
             0x0005, 1, domain1, NULL);
-    if (switches < 0)
+    if (segments < 0)
         return -1;
 
-    if (!(sc = ecrt_master_slave_config(master,
-                    LAB_1_SlavePos, LAB_1))) {
+    potentiometer = ecrt_slave_config_reg_pdo_entry(sc,
+            0x0006, 0x01, domain1, NULL);
+    if ( potentiometer < 0)
+        return -1;
+
+    if (!(slave_config2 = ecrt_master_slave_config(master,
+                    LAB_1_SlavePos, LAB_1))) {  
         fprintf(stderr, "Failed to get slave configuration.\n");
         return -1;
     }
 
-    alarmStatus = ecrt_slave_config_reg_pdo_entry(sc,
+    alarmStatus = ecrt_slave_config_reg_pdo_entry(slave_config2,
             0x005, 0x01, domain1, NULL);
-    if (switches < 0)
+    if (alarmStatus < 0)
+        return -1;
+    
+    temperatureStatus = ecrt_slave_config_reg_pdo_entry(slave_config2,
+            0x006, 0x01, domain1, NULL);
+    if (temperatureStatus < 0)
         return -1;
 
-    potentiometer = ecrt_slave_config_reg_pdo_entry(sc,
-            0x0006, 1, domain1, NULL);
-    if ( potentiometer < 0)
-        return -1;
 
     // configure SYNC signals for this slave
-    ecrt_slave_config_dc(sc, 0x0006, PERIOD_NS, 4400000, 0, 0);
+    ecrt_slave_config_dc(sc, 0x0006, PERIOD_NS, 440000, 0, 0);
+    ecrt_slave_config_dc(slave_config2, 0x0006, PERIOD_NS, 440000, 0, 0);
+
 
     printf("Activating master...\n");
     if (ecrt_master_activate(master))
@@ -413,7 +443,8 @@ int main(int argc, char **argv)
     if (!(domain1_pd = ecrt_domain_data(domain1))) {
         return -1;
     }
-
+    if(!(domain1_pd2 = ecrt_domain_data(domain1))) 
+    return -1;
  
 
   /*  printf("Using priority %i.", param.sched_priority);
@@ -456,13 +487,14 @@ int main(int argc, char **argv)
         }
         /* Use scheduling parameters of attr */
         err = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-        if (err) {
+        if (err) 
+        {
                 printf("pthread setinheritsched failed\n");
                 goto out;
         }
  
         /* Create a pthread with specified attributes */
-        err = pthread_create(&cyclicThread, &attr, cyclic_task, NULL);
+        err = pthread_create(&cyclicThread, &attr, &cyclic_task, NULL);
         if (err) {
                 printf("create pthread failed\n");
                 goto out;
@@ -471,7 +503,7 @@ int main(int argc, char **argv)
         /* Join the thread and wait until it is done */
         err = pthread_join(cyclicThread, NULL);
         if (err)
-                printf("join pthread failed: %m\n");
+                printf("join pthread failed\n");
     
 /*
     pthread_attr_init(&attr);
