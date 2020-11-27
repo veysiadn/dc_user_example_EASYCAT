@@ -266,9 +266,9 @@ unsigned short potVal=0;
             lastStartTime = startTime;
             if(!begin)
             {
-            if(latency_ns > max_latency && latency_ns < 1500000)        max_latency = latency_ns;
-            if(period_ns > max_period && period_ns < 1500000)          max_period  = period_ns;
-            if(exec_ns > max_exec && exec_ns < 1500000)              max_exec    = exec_ns;
+            if(latency_ns > max_latency)        max_latency = latency_ns;
+            if(period_ns > max_period)          max_period  = period_ns;
+            if(exec_ns > max_exec)              max_exec    = exec_ns;
             }
 
             if (latency_ns > latency_max_ns)  {
@@ -432,8 +432,8 @@ int main(int argc, char **argv)
 
 
     // configure SYNC signals for this slave
-    ecrt_slave_config_dc(sc, 0x0006, PERIOD_NS, 440000, 0, 0);
-    ecrt_slave_config_dc(slave_config2, 0x0006, PERIOD_NS, 440000, 0, 0);
+    ecrt_slave_config_dc(sc, 0x0006, PERIOD_NS, 4400000, 0, 0);
+    ecrt_slave_config_dc(slave_config2, 0x0006, PERIOD_NS, 4400000, 0, 0);
 
 
     printf("Activating master...\n");
@@ -454,8 +454,15 @@ int main(int argc, char **argv)
 */   
         /* Set priority */
     printf("\nStarting cyclic function.\n");
+        struct sched_param param = {};
+    param.sched_priority = 99;
 
-    struct sched_param param;
+    printf("Using priority %i.", param.sched_priority);
+    if (sched_setscheduler(0, SCHED_FIFO, &param) == -1)
+    {
+        perror("sched_setscheduler failed");
+    }
+    //struct sched_param param;
     pthread_t cyclicThread;
     pthread_attr_t attr;
     int err;
@@ -468,7 +475,8 @@ int main(int argc, char **argv)
  
         /* Set a specific stack size  */
         err = pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
-        if (err) {
+        if (err) 
+        {
             printf("pthread setstacksize failed\n");
             goto out;
         }
@@ -479,7 +487,7 @@ int main(int argc, char **argv)
                 printf("pthread setschedpolicy failed\n");
                 goto out;
         }
-        param.sched_priority = 80;
+//        param.sched_priority = 99;
         err = pthread_attr_setschedparam(&attr, &param);
         if (err) {
                 printf("pthread setschedparam failed\n");
