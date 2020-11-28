@@ -341,12 +341,13 @@ unsigned short potVal=0;
 
                 // calculate new process data
                 blink = !blink;
+                tempData = EC_READ_REAL(domain1_pd2 + temperatureStatus);
+                potVal = EC_READ_U16(domain1_pd + potentiometer);
     }
 
             // write process data
-            tempData = EC_READ_REAL(domain1_pd2 + temperatureStatus);
-            potVal = EC_READ_U16(domain1_pd + potentiometer);
             EC_WRITE_U8(domain1_pd + segments, blink ? 0x0c : 0x03);
+
 
             if (sync_ref_counter) {
                 sync_ref_counter--;
@@ -432,8 +433,8 @@ int main(int argc, char **argv)
 
 
     // configure SYNC signals for this slave
-    ecrt_slave_config_dc(sc, 0x0006, PERIOD_NS, 4400000, 0, 0);
-    ecrt_slave_config_dc(slave_config2, 0x0006, PERIOD_NS, 4400000, 0, 0);
+    ecrt_slave_config_dc(sc, 0x0006, PERIOD_NS, 1000, 0, 0);
+    //ecrt_slave_config_dc(slave_config2, 0x0001, PERIOD_NS, 1000, 0, 0);
 
 
     printf("Activating master...\n");
@@ -453,7 +454,7 @@ int main(int argc, char **argv)
     }
 */   
         /* Set priority */
-    printf("\nStarting cyclic function.\n");
+    /*printf("\nStarting cyclic function.\n");
         struct sched_param param = {};
     param.sched_priority = 99;
 
@@ -461,8 +462,8 @@ int main(int argc, char **argv)
     if (sched_setscheduler(0, SCHED_FIFO, &param) == -1)
     {
         perror("sched_setscheduler failed");
-    }
-    //struct sched_param param;
+    }*/
+    struct sched_param param = {};
     pthread_t cyclicThread;
     pthread_attr_t attr;
     int err;
@@ -487,7 +488,7 @@ int main(int argc, char **argv)
                 printf("pthread setschedpolicy failed\n");
                 goto out;
         }
-//        param.sched_priority = 99;
+        param.sched_priority = 80;
         err = pthread_attr_setschedparam(&attr, &param);
         if (err) {
                 printf("pthread setschedparam failed\n");
@@ -501,7 +502,7 @@ int main(int argc, char **argv)
                 goto out;
         }
  
-        /* Create a pthread with specified attributes */
+        /* Create a pthread with specified attributes */    
         err = pthread_create(&cyclicThread, &attr, &cyclic_task, NULL);
         if (err) {
                 printf("create pthread failed\n");
